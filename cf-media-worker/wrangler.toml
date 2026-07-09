@@ -1,0 +1,12 @@
+name = "cf-media-worker"
+main = "src/index.js"
+compatibility_date = "2023-12-01"
+
+# Bind your R2 Bucket
+[[r2_buckets]]
+binding = "MY_R2_BUCKET"
+bucket_name = "your-r2-bucket-name"
+
+# Define your secrets in dashboard (npx wrangler secret put SECRET_SALT)
+# [vars]
+# SECRET_SALT = "enterprise_super_secret_salt_123"

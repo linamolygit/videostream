@@ -1,0 +1,8 @@
+name = "ems-stream-worker"
+main = "src/index.js"
+compatibility_date = "2024-03-20"
+
+# Bind your secret salt for HMAC verification
+# You should ideally set this via `wrangler secret put SECRET_SALT` in production
+# [vars]
+# SECRET_SALT = "your-very-secure-random-salt-here"
