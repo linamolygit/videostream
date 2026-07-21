@@ -12,7 +12,7 @@ export default function MyApp({ Component, pageProps }) {
   const router = useRouter();
 
   const isHome     = router.pathname === '/';
-  const isAuthPage = ['/login', '/signup'].includes(router.pathname);
+  const isAuthPage = ['/login', '/signup', '/plugin-preview'].includes(router.pathname);
 
   useEffect(() => {
     const saved = localStorage.getItem('theme');

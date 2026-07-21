@@ -1,634 +1,626 @@
 <?php
 /**
- * Plugin Name: Advanced Video Cloak & Content Loop (Zero Footprint)
- * Description: Military-grade Anti-Bot. Zero Footprint, Smart Aspect Ratio, and SaaS-grade Remote Media Manager Dashboard.
- * Version:     5.5
+ * Plugin Name: Media Link Manager (Zero-Config)
+ * Description: Lightweight, bot-shielded stream link consumer for WordPress posts. Connects to Media Hoster SaaS without API keys.
+ * Version:     7.0
  * Author:      RishavDev
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 // ============================================================
-// 1. DATABASE & CONFIGURING DEFAULT DATA
+// ADMIN MENU REGISTRATION
 // ============================================================
-register_activation_hook( __FILE__, 'avc_install_plugin' );
-function avc_install_plugin() {
-    // Save sample dummy data for the dashboard visual showcase on first activation
-    if ( ! get_option('avc_media_links') ) {
-        $dummy_links = [
-            [
-                'id' => 1,
-                'title' => 'Nature Documentary',
-                'type' => 'Video',
-                'source_url' => 'https://cdn.example.com/video/nature.mp4',
-                'views' => '8.7K',
-                'clicks' => '2.1K',
-                'status' => 'Active'
-            ],
-            [
-                'id' => 2,
-                'title' => 'City Skyline Time-lapse',
-                'type' => 'Video',
-                'source_url' => 'https://videos.example.net/skyline.mp4',
-                'views' => '5.3K',
-                'clicks' => '1.2K',
-                'status' => 'Active'
-            ],
-            [
-                'id' => 3,
-                'title' => 'Mountain Landscape',
-                'type' => 'Image Carousel',
-                'source_url' => 'https://images.example.com/mountain.jpg',
-                'views' => '6.2K',
-                'clicks' => '1.5K',
-                'status' => 'Active'
-            ]
-        ];
-        update_option('avc_media_links', $dummy_links);
-    }
-}
-
-// ============================================================
-// 2. ADMIN MENU & REGISTER PAGE
-// ============================================================
-add_action( 'admin_menu', 'avc_register_admin_dashboard' );
-function avc_register_admin_dashboard() {
+add_action('admin_menu', 'mlm_register_menu');
+function mlm_register_menu() {
     add_menu_page(
         'Media Link Manager',
-        'Media Manager',
-        'manage_options',
-        'media-link-manager',
-        'avc_render_dashboard_page',
-        'dashicons-admin-media',
-        30
+        'Media Link Manager',
+        'edit_posts',
+        'mlm-manager',
+        'mlm_page_manager',
+        'dashicons-admin-links',
+        5
     );
+    add_submenu_page('mlm-manager', 'All Links',    'All Links',    'edit_posts', 'mlm-manager', 'mlm_page_manager');
+    add_submenu_page('mlm-manager', 'Add New Link', 'Add New Link', 'edit_posts', 'mlm-manager#add-new', 'mlm_page_manager');
+    add_submenu_page('mlm-manager', 'Settings',     'Settings',     'edit_posts', 'mlm-settings', 'mlm_page_settings');
+    add_submenu_page('mlm-manager', 'Logs',         'Logs',         'edit_posts', 'mlm-logs',     'mlm_page_logs');
+    add_submenu_page('mlm-manager', 'Help',         'Help',         'edit_posts', 'mlm-help',     'mlm_page_help');
 }
 
-// Include stylesheet and scripts safely in WordPress Admin
-function avc_render_dashboard_page() {
-    // Process form submissions
-    if ( isset($_POST['avc_add_link_nonce']) && wp_verify_nonce($_POST['avc_add_link_nonce'], 'avc_quick_add') ) {
-        $links = get_option('avc_media_links', []);
-        $new_link = [
-            'id' => time(),
-            'title' => sanitize_text_field($_POST['link_title'] ?: 'Untitled Media'),
-            'type' => sanitize_text_field($_POST['media_type']),
-            'source_url' => esc_url_raw($_POST['source_url']),
-            'views' => '0',
-            'clicks' => '0',
-            'status' => 'Active'
-        ];
-        $links[] = $new_link;
-        update_option('avc_media_links', $links);
-        echo '<div class="notice notice-success is-dismissible"><p>New media link added successfully!</p></div>';
-    }
-
-    $links = get_option('avc_media_links', []);
+// ============================================================
+// ADMIN STYLES & SCRIPTS (Pixel-Accurate WordPress Admin UI)
+// ============================================================
+add_action('admin_head', 'mlm_admin_styles');
+function mlm_admin_styles() {
+    $screen = get_current_screen();
+    if (!$screen || strpos($screen->id, 'mlm') === false) return;
     ?>
-    
-    <!-- SAAS-GRADE DASHBOARD HTML & EMBEDDED CSS -->
     <style>
-        /* Modern UI Reset & Fonts */
-        #wpcontent { padding-left: 0 !important; }
-        .avc-dashboard-body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #f8fafc;
-            color: #1e293b;
-            display: flex;
-            min-height: calc(100vh - 32px);
-            margin: 0;
-            box-sizing: border-box;
-        }
-        .avc-dashboard-body * { box-sizing: border-box; }
-
-        /* Left Sidebar Styling */
-        .avc-sidebar {
-            width: 260px;
-            background: #fff;
-            border-right: 1px solid #e2e8f0;
-            padding: 24px 16px;
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-        }
-        .avc-logo-sec {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 32px;
-            padding-left: 8px;
-        }
-        .avc-logo-icon {
-            background: #6366f1;
-            color: #fff;
-            width: 36px;
-            height: 36px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            font-size: 18px;
-        }
-        .avc-logo-title h2 { margin: 0; font-size: 16px; font-weight: 700; color: #0f172a; }
-        .avc-logo-title p { margin: 2px 0 0 0; font-size: 11px; color: #64748b; }
-        
-        .avc-menu-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
-        .avc-menu-item a {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 12px;
-            border-radius: 8px;
-            color: #475569;
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 14px;
-            transition: all 0.2s;
-        }
-        .avc-menu-item.active a, .avc-menu-item a:hover {
-            background: #f1f5f9;
-            color: #6366f1;
-        }
-        .avc-upgrade-box {
-            margin-top: auto;
-            background: #eef2ff;
-            border: 1px solid #e0e7ff;
-            padding: 16px;
-            border-radius: 12px;
-            text-align: center;
-        }
-        .avc-upgrade-box h4 { margin: 0 0 6px 0; font-size: 14px; color: #312e81; font-weight: 600; }
-        .avc-upgrade-box p { margin: 0 0 12px 0; font-size: 11px; color: #4338ca; line-height: 1.4; }
-        .avc-upgrade-btn {
-            background: #6366f1;
-            color: #fff;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            width: 100%;
-            transition: background 0.2s;
-        }
-        .avc-upgrade-btn:hover { background: #4f46e5; }
-
-        /* Main Workspace */
-        .avc-main-container {
-            display: grid;
-            grid-template-columns: 1fr 340px;
-            gap: 24px;
-            padding: 32px;
-            width: 100%;
+        /* Base WordPress Admin Layout Adjustments */
+        #wpcontent { background: #f0f0f1 !important; padding-left: 0 !important; }
+        .mlm-wrap {
+            max-width: 1280px;
+            margin: 20px auto;
+            padding: 0 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+            color: #1d2327;
         }
 
-        /* Top Bar */
-        .avc-header {
-            grid-column: span 2;
+        /* Top Page Header */
+        .mlm-top-header {
             display: flex;
+            align-items: center;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        .avc-header h1 { margin: 0; font-size: 24px; font-weight: 700; color: #0f172a; }
-        .avc-header p { margin: 4px 0 0 0; color: #64748b; font-size: 14px; }
-        
-        .avc-header-actions { display: flex; align-items: center; gap: 12px; }
-        .avc-btn-secondary {
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            color: #334155;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .avc-btn-secondary:hover { background: #f8fafc; }
-
-        /* Metric Cards */
-        .avc-metrics-row {
-            grid-column: span 2;
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-        }
-        .avc-metric-card {
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 20px;
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-        .avc-metric-icon {
-            width: 48px;
-            height: 48px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-        }
-        .avc-icon-1 { background: #eef2ff; color: #6366f1; }
-        .avc-icon-2 { background: #ecfdf5; color: #10b981; }
-        .avc-icon-3 { background: #fef2f2; color: #ef4444; }
-        .avc-icon-4 { background: #fff7ed; color: #f59e0b; }
-        
-        .avc-metric-info p { margin: 0; font-size: 12px; color: #64748b; font-weight: 500; }
-        .avc-metric-info h3 { margin: 4px 0 0 0; font-size: 22px; font-weight: 700; color: #0f172a; }
-
-        /* Left Workspace Block */
-        .avc-workspace-left {
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-        }
-
-        /* Central Table Component */
-        .avc-panel {
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 24px;
-        }
-        .avc-panel-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
             margin-bottom: 20px;
         }
-        .avc-panel-header h3 { margin: 0; font-size: 16px; font-weight: 700; color: #0f172a; }
-        
-        .avc-table {
-            width: 100%;
-            border-collapse: collapse;
-            text-align: left;
-        }
-        .avc-table th {
-            padding: 12px 16px;
-            border-bottom: 1px solid #e2e8f0;
-            color: #64748b;
+        .mlm-top-header h1 {
+            font-size: 23px;
             font-weight: 600;
+            color: #1d2327;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .mlm-top-header h1 .dashicons {
+            font-size: 26px;
+            width: 26px;
+            height: 26px;
+            color: #2271b1;
+        }
+
+        /* Stat Cards Row */
+        .mlm-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 18px;
+            margin-bottom: 22px;
+        }
+        .mlm-stat-card {
+            background: #ffffff;
+            border: 1px solid #c3c4c7;
+            border-radius: 8px;
+            padding: 20px 24px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: all 0.2s ease;
+        }
+        .mlm-stat-card:hover {
+            border-color: #2271b1;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transform: translateY(-1px);
+        }
+        .mlm-stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .mlm-stat-icon.blue { background: #2271b1; color: #fff; }
+        .mlm-stat-icon.purple { background: #8c57ff; color: #fff; }
+        .mlm-stat-icon.green { background: #46b450; color: #fff; }
+
+        .mlm-stat-icon .dashicons {
+            font-size: 24px;
+            width: 24px;
+            height: 24px;
+        }
+        .mlm-stat-info label {
+            display: block;
             font-size: 12px;
-            text-transform: uppercase;
-        }
-        .avc-table td {
-            padding: 16px;
-            border-bottom: 1px solid #f1f5f9;
-            font-size: 14px;
-            color: #334155;
-        }
-        .avc-media-title-cell { display: flex; align-items: center; gap: 12px; }
-        .avc-media-thumb {
-            width: 44px;
-            height: 32px;
-            background: #111;
-            border-radius: 6px;
-            object-fit: cover;
-        }
-        .avc-badge {
-            background: #f1f5f9;
-            color: #475569;
-            padding: 4px 8px;
-            border-radius: 20px;
-            font-size: 11px;
             font-weight: 600;
+            color: #646970;
+            margin-bottom: 4px;
         }
-        .avc-badge-active { background: #d1fae5; color: #065f46; }
-        .avc-url-copy {
+        .mlm-stat-info .num {
+            font-size: 26px;
+            font-weight: 700;
+            color: #1d2327;
+            line-height: 1;
+        }
+
+        /* Form & Data Panels */
+        .mlm-panel {
+            background: #ffffff;
+            border: 1px solid #c3c4c7;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+        .mlm-panel-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #f0f0f1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .mlm-panel-header h2 {
+            font-size: 15px;
+            font-weight: 700;
+            color: #1d2327;
+            margin: 0;
+        }
+
+        .mlm-panel-body {
+            padding: 20px;
+        }
+
+        /* Add New Link Form Grid */
+        .mlm-form-grid {
+            display: grid;
+            grid-template-columns: 1.2fr 2fr 1.2fr auto;
+            gap: 16px;
+            align-items: flex-end;
+        }
+        .mlm-field label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #1d2327;
+            margin-bottom: 8px;
+        }
+        .mlm-input, .mlm-select {
+            width: 100%;
+            height: 40px;
+            padding: 0 12px;
+            border: 1px solid #8c8f94;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #2c3338;
+            background: #ffffff;
+            outline: none;
+            box-shadow: 0 0 0 transparent;
+            transition: all 0.15s ease-in-out;
+        }
+        .mlm-input:focus, .mlm-select:focus {
+            border-color: #2271b1;
+            box-shadow: 0 0 0 1px #2271b1;
+        }
+
+        /* Buttons */
+        .mlm-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 40px;
+            padding: 0 20px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid transparent;
+            text-decoration: none;
+            transition: all 0.15s ease-in-out;
+            white-space: nowrap;
+        }
+        .mlm-btn-primary {
+            background: #2271b1;
+            color: #ffffff !important;
+            border-color: #2271b1;
+        }
+        .mlm-btn-primary:hover {
+            background: #135e96;
+            border-color: #135e96;
+        }
+        .mlm-btn-secondary {
+            background: #f6f7f7;
+            color: #2271b1 !important;
+            border-color: #2271b1;
+        }
+        .mlm-btn-secondary:hover {
+            background: #f0f0f1;
+            color: #135e96 !important;
+        }
+
+        /* Table Control Header */
+        .mlm-table-controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: #ffffff;
+            border-bottom: 1px solid #f0f0f1;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .mlm-controls-left, .mlm-controls-right {
             display: flex;
             align-items: center;
             gap: 8px;
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-family: monospace;
-            font-size: 11px;
-            max-width: 220px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
         }
-        .avc-copy-btn { cursor: pointer; color: #6366f1; border: none; background: none; font-weight: bold; }
 
-        /* Quick Add & Dropzone Block */
-        .avc-quick-add-form {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 20px;
+        /* Table Styling */
+        .mlm-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #ffffff;
         }
-        .avc-form-fields { display: flex; flex-direction: column; gap: 12px; }
-        .avc-input-row { display: flex; gap: 12px; }
-        .avc-input-row input, .avc-input-row select { flex: 1; }
-        
-        .avc-form-fields input, .avc-form-fields select {
-            border: 1px solid #e2e8f0;
-            padding: 10px 14px;
-            border-radius: 8px;
+        .mlm-table th {
+            padding: 12px 16px;
             font-size: 13px;
-            width: 100%;
+            font-weight: 600;
+            color: #1d2327;
+            text-align: left;
+            border-bottom: 1px solid #c3c4c7;
+            background: #ffffff;
         }
-        .avc-dropzone {
-            border: 2px dashed #cbd5e1;
+        .mlm-table td {
+            padding: 14px 16px;
+            font-size: 13px;
+            color: #2c3338;
+            border-bottom: 1px solid #f0f0f1;
+            vertical-align: middle;
+        }
+        .mlm-table tr:hover td {
+            background: #f6f7f7;
+        }
+
+        .mlm-post-title {
+            font-weight: 600;
+            color: #2271b1;
+            text-decoration: none;
+        }
+        .mlm-post-title:hover {
+            color: #135e96;
+            text-decoration: underline;
+        }
+        .mlm-post-id {
+            font-size: 11px;
+            color: #646970;
+            margin-top: 2px;
+        }
+
+        .mlm-link-url {
+            color: #2271b1;
+            text-decoration: none;
+            font-family: monospace;
+            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .mlm-link-url:hover {
+            text-decoration: underline;
+        }
+
+        /* Status Pills */
+        .mlm-status-pill {
+            display: inline-block;
+            padding: 3px 10px;
             border-radius: 12px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            text-align: center;
-            cursor: pointer;
-            transition: border-color 0.2s;
+            font-size: 11px;
+            font-weight: 600;
         }
-        .avc-dropzone:hover { border-color: #6366f1; }
-        .avc-dropzone-icon { font-size: 28px; color: #6366f1; margin-bottom: 8px; }
-
-        /* Right Sidebar Workspace */
-        .avc-workspace-right {
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
+        .mlm-status-active {
+            background: #dcfce7;
+            color: #15803d;
         }
-
-        /* Post Preview Panel */
-        .avc-preview-card {
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 20px;
-        }
-        .avc-preview-screen {
-            background: #000;
-            border-radius: 8px;
-            aspect-ratio: 16/9;
-            overflow: hidden;
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-            margin-bottom: 12px;
-        }
-        .avc-preview-play {
-            width: 50px;
-            height: 50px;
-            background: #6366f1;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            box-shadow: 0 4px 15px rgba(99,102,241,0.5);
-        }
-
-        /* Analytics Chart SVG */
-        .avc-chart-svg { width: 100%; height: auto; margin-top: 15px; }
-
-        /* CSS Progress Bar */
-        .avc-progress-bar {
+        .mlm-status-inactive {
             background: #f1f5f9;
-            border-radius: 100px;
-            height: 8px;
-            width: 100%;
-            margin-top: 10px;
-            overflow: hidden;
+            color: #64748b;
         }
-        .avc-progress-fill {
-            background: #6366f1;
-            height: 100%;
-            width: 39%;
-            border-radius: 100px;
+
+        /* Action Icons */
+        .mlm-action-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            padding: 4px 6px;
+            color: #646970;
+            border-radius: 4px;
+            transition: all 0.15s;
+        }
+        .mlm-action-btn.edit { color: #2271b1; }
+        .mlm-action-btn.edit:hover { background: #f0f6fc; }
+        .mlm-action-btn.delete { color: #d63638; }
+        .mlm-action-btn.delete:hover { background: #fcf0f1; }
+
+        /* Pagination & Bulk Styling */
+        .mlm-pagination {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: #646970;
+        }
+        .mlm-page-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 28px;
+            height: 28px;
+            padding: 0 6px;
+            border: 1px solid #8c8f94;
+            border-radius: 4px;
+            background: #f6f7f7;
+            color: #2c3338;
+            text-decoration: none;
+            font-size: 12px;
+        }
+        .mlm-page-btn:hover {
+            background: #f0f0f1;
+            border-color: #2271b1;
+            color: #2271b1;
+        }
+        .mlm-page-num {
+            width: 36px;
+            height: 28px;
+            text-align: center;
+            border: 1px solid #8c8f94;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .mlm-notice-banner {
+            padding: 12px 16px;
+            background: #edfaef;
+            border-left: 4px solid #46b450;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #1d2327;
         }
     </style>
-
-    <div class="avc-dashboard-body">
-        
-        <!-- SIDEBAR LEFT -->
-        <aside class="avc-sidebar">
-            <div class="avc-logo-sec">
-                <div class="avc-logo-icon">M</div>
-                <div class="avc-logo-title">
-                    <h2>Media Manager</h2>
-                    <p>Cloud Media Dashboard</p>
-                </div>
-            </div>
-            <ul class="avc-menu-list">
-                <li class="avc-menu-item active"><a href="#">📊 Dashboard</a></li>
-                <li class="avc-menu-item"><a href="#">🔗 Media Links</a></li>
-                <li class="avc-menu-item"><a href="#">➕ Add New Link</a></li>
-                <li class="avc-menu-item"><a href="#">📂 Categories</a></li>
-                <li class="avc-menu-item"><a href="#">📝 Blog Posts</a></li>
-                <li class="avc-menu-item"><a href="#">📈 Analytics</a></li>
-                <li class="avc-menu-item"><a href="#">⚙️ Settings</a></li>
-                <li class="avc-menu-item"><a href="#">🛠️ Tools</a></li>
-            </ul>
-            <div class="avc-upgrade-box">
-                <h4>Upgrade to Pro</h4>
-                <p>Unlock Unlimited Links, Advanced Analytics, & Custom Domains.</p>
-                <button class="avc-upgrade-btn">Upgrade Now</button>
-            </div>
-        </aside>
-
-        <!-- MAIN GRID CONTAINER -->
-        <main class="avc-main-container">
-            
-            <!-- HEADER -->
-            <header class="avc-header">
-                <div>
-                    <h1>Dashboard</h1>
-                    <p>Manage and track all your remote media links in one place.</p>
-                </div>
-                <div class="avc-header-actions">
-                    <button class="avc-btn-secondary">⚡ Quick Setup</button>
-                </div>
-            </header>
-
-            <!-- STATS METRIC ROW -->
-            <section class="avc-metrics-row">
-                <div class="avc-metric-card">
-                    <div class="avc-metric-icon avc-icon-1">🔗</div>
-                    <div class="avc-metric-info">
-                        <p>Total Links</p>
-                        <h3>128</h3>
-                    </div>
-                </div>
-                <div class="avc-metric-card">
-                    <div class="avc-metric-icon avc-icon-2">👁️</div>
-                    <div class="avc-metric-info">
-                        <p>Total Views</p>
-                        <h3>48.7K</h3>
-                    </div>
-                </div>
-                <div class="avc-metric-card">
-                    <div class="avc-metric-icon avc-icon-3">🖱️</div>
-                    <div class="avc-metric-info">
-                        <p>Total Clicks</p>
-                        <h3>12.4K</h3>
-                    </div>
-                </div>
-                <div class="avc-metric-card">
-                    <div class="avc-metric-icon avc-icon-4">💾</div>
-                    <div class="avc-metric-info">
-                        <p>Bandwidth</p>
-                        <h3>392.1 GB</h3>
-                    </div>
-                </div>
-            </section>
-
-            <!-- LEFT WORKSPACE BLOCK (Table & Quick Add) -->
-            <div class="avc-workspace-left">
-                
-                <!-- TABLE PANEL -->
-                <div class="avc-panel">
-                    <div class="avc-panel-header">
-                        <h3>Your Media Links</h3>
-                    </div>
-                    <table class="avc-table">
-                        <thead>
-                            <tr>
-                                <th>Title</th>
-                                <th>Type</th>
-                                <th>Source URL</th>
-                                <th>Views</th>
-                                <th>Clicks</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($links as $link) : ?>
-                            <tr>
-                                <td class="avc-media-title-cell">
-                                    <div class="avc-media-thumb" style="background: url('https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=100&auto=format&fit=crop&q=60') center/cover;"></div>
-                                    <strong><?php echo esc_html($link['title']); ?></strong>
-                                </td>
-                                <td><span class="avc-badge"><?php echo esc_html($link['type']); ?></span></td>
-                                <td>
-                                    <div class="avc-url-copy">
-                                        <span><?php echo esc_html($link['source_url']); ?></span>
-                                    </div>
-                                </td>
-                                <td><?php echo esc_html($link['views']); ?></td>
-                                <td><?php echo esc_html($link['clicks']); ?></td>
-                                <td><span class="avc-badge avc-badge-active"><?php echo esc_html($link['status']); ?></span></td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- QUICK ADD FORM -->
-                <div class="avc-panel">
-                    <div class="avc-panel-header">
-                        <h3>Quick Add New Link</h3>
-                    </div>
-                    <form method="post" class="avc-quick-add-form">
-                        <?php wp_nonce_field('avc_quick_add', 'avc_add_link_nonce'); ?>
-                        <div class="avc-form-fields">
-                            <input type="url" name="source_url" id="avc-input-url" placeholder="https://your-server.com/media/your-file.mp4" required>
-                            <div class="avc-input-row">
-                                <select name="media_type" id="avc-input-type">
-                                    <option value="Video">Video</option>
-                                    <option value="Image Carousel">Image Carousel</option>
-                                </select>
-                                <input type="text" name="link_title" id="avc-input-title" placeholder="Link Title (optional)">
-                            </div>
-                            <button type="submit" class="avc-upgrade-btn" style="background:#6366f1; width:auto; align-self:flex-start;">Add Link</button>
-                        </div>
-                        <div class="avc-dropzone">
-                            <div class="avc-dropzone-icon">☁️</div>
-                            <p style="margin:0; font-size:12px; font-weight:600; color:#475569;">Drag & drop media link file</p>
-                            <span style="font-size:10px; color:#94a3b8;">Supports MP4, WebM, JPG</span>
-                        </div>
-                    </form>
-                </div>
-
-            </div>
-
-            <!-- RIGHT SIDEBAR (Preview & Analytics Overview) -->
-            <div class="avc-workspace-right">
-                
-                <!-- PREVIEW PANEL -->
-                <div class="avc-preview-card">
-                    <h3 style="margin-top:0; font-size:14px; font-weight:700; color:#0f172a; margin-bottom:12px;">Post Preview</h3>
-                    <div class="avc-preview-screen" id="avc-preview-screen" style="background: url('https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=500&auto=format&fit=crop&q=80') center/cover;">
-                        <div class="avc-preview-play">▶</div>
-                    </div>
-                    <h4 id="avc-preview-title" style="margin:12px 0 6px 0; font-size:14px; font-weight:700;">Exploring the Beauty of Nature</h4>
-                    <p style="margin:0 0 16px 0; font-size:11px; color:#64748b; line-height:1.4;">This is a live responsive demonstration. Type in the input fields below to see it update dynamically in real-time.</p>
-                    <button class="avc-upgrade-btn" style="background:#6366f1;">Watch Now</button>
-                </div>
-
-                <!-- ANALYTICS PANEL -->
-                <div class="avc-preview-card">
-                    <h3 style="margin-top:0; font-size:14px; font-weight:700; color:#0f172a; margin-bottom:4px;">Analytics Overview</h3>
-                    <span style="font-size:11px; color:#94a3b8;">Traffic Performance This Month</span>
-                    
-                    <!-- Line Graph Representation via inline SVG -->
-                    <svg class="avc-chart-svg" viewBox="0 0 300 100">
-                        <path d="M 0,80 Q 50,40 100,60 T 200,20 T 300,30" fill="none" stroke="#6366f1" stroke-width="3" />
-                        <path d="M 0,90 Q 50,60 100,75 T 200,45 T 300,55" fill="none" stroke="#10b981" stroke-width="2" />
-                    </svg>
-
-                    <div style="display:flex; justify-content:space-between; margin-top:15px; border-top:1px solid #f1f5f9; padding-top:12px;">
-                        <div>
-                            <span style="font-size:10px; color:#64748b;">Avg Views</span>
-                            <h4 style="margin:4px 0 0 0; font-size:14px; font-weight:700;">1.62K</h4>
-                        </div>
-                        <div>
-                            <span style="font-size:10px; color:#64748b;">CTR</span>
-                            <h4 style="margin:4px 0 0 0; font-size:14px; font-weight:700; color:#10b981;">25.4%</h4>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- BANDWIDTH PROGRESS -->
-                <div class="avc-preview-card">
-                    <h3 style="margin-top:0; font-size:14px; font-weight:700; color:#0f172a; margin-bottom:4px;">Storage & Bandwidth</h3>
-                    <div style="display:flex; justify-content:space-between; margin-top:12px;">
-                        <span style="font-size:12px; color:#64748b;">392.1 GB / 1 TB</span>
-                        <span style="font-size:12px; color:#0f172a; font-weight:700;">39% Used</span>
-                    </div>
-                    <div class="avc-progress-bar">
-                        <div class="avc-progress-fill"></div>
-                    </div>
-                </div>
-
-            </div>
-
-        </main>
-    </div>
-
-    <!-- REAL-TIME INTERACTION JS SCRIPT -->
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const inputTitle = document.getElementById('avc-input-title');
-            const inputUrl = document.getElementById('avc-input-url');
-            const previewTitle = document.getElementById('avc-preview-title');
-            const previewScreen = document.getElementById('avc-preview-screen');
-
-            // Dynamic Live Preview Updates on Input
-            if(inputTitle && previewTitle) {
-                inputTitle.addEventListener('input', function() {
-                    previewTitle.textContent = this.value ? this.value : 'Exploring the Beauty of Nature';
-                });
-            }
-
-            if(inputUrl && previewScreen) {
-                inputUrl.addEventListener('input', function() {
-                    // If image carousel URL, we can change the preview thumbnail background
-                    if(this.value.match(/\.(jpeg|jpg|gif|png)$/) != null) {
-                        previewScreen.style.backgroundImage = `url('${this.value}')`;
-                    }
-                });
-            }
-        });
-    </script>
     <?php
 }
+
+// ============================================================
+// PAGE: Manage Links (Main WordPress Plugin Dashboard)
+// ============================================================
+function mlm_page_manager() {
+    if (isset($_POST['mlm_save_link']) && check_admin_referer('mlm_save_link_nonce')) {
+        $post_id  = intval($_POST['mlm_post_id'] ?? 0);
+        $link     = esc_url_raw(trim($_POST['mlm_stream_link'] ?? ''));
+        $position = sanitize_text_field($_POST['mlm_position'] ?? 'Before Content');
+
+        if ($post_id) {
+            update_post_meta($post_id, '_mlm_stream_link', $link);
+            update_post_meta($post_id, '_mlm_position', $position);
+            update_post_meta($post_id, '_mlm_status', 'Active');
+            echo '<div class="mlm-notice-banner">✓ Stream link successfully attached to post!</div>';
+        }
+    }
+
+    if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['post_id']) && check_admin_referer('mlm_delete_link')) {
+        $delete_id = intval($_GET['post_id']);
+        delete_post_meta($delete_id, '_mlm_stream_link');
+        delete_post_meta($delete_id, '_mlm_position');
+        delete_post_meta($delete_id, '_mlm_status');
+        echo '<div class="mlm-notice-banner">✓ Stream link removed from post.</div>';
+    }
+
+    $posts = get_posts(['numberposts' => 100, 'post_status' => 'publish']);
+
+    $linked_count = 0;
+    $video_count = 0;
+    $carousel_count = 0;
+    $linked_items = [];
+
+    foreach ($posts as $p) {
+        $link = get_post_meta($p->ID, '_mlm_stream_link', true);
+        if (!empty($link)) {
+            $linked_count++;
+            $position = get_post_meta($p->ID, '_mlm_position', true) ?: 'Before Content';
+            $status   = get_post_meta($p->ID, '_mlm_status', true) ?: 'Active';
+
+            if (strpos($link, 'carousel') !== false || strpos($link, 'image') !== false) {
+                $carousel_count++;
+            } else {
+                $video_count++;
+            }
+
+            $linked_items[] = [
+                'id'       => $p->ID,
+                'title'    => $p->post_title,
+                'link'     => $link,
+                'position' => $position,
+                'status'   => $status,
+            ];
+        }
+    }
+
+    if (empty($linked_items)) {
+        $linked_items = [
+            ['id' => 125, 'title' => '10 Best Travel Destinations in 2024', 'link' => 'https://streamable.com/abc123',  'position' => 'Before Content',   'status' => 'Active'],
+            ['id' => 124, 'title' => 'How to Cook Perfect Pasta',          'link' => 'https://vimeo.com/xyz456',        'position' => 'After Content',    'status' => 'Active'],
+            ['id' => 123, 'title' => 'Greenland – A Hidden Paradise',       'link' => 'https://streamable.com/greenland','position' => 'Before Content',   'status' => 'Inactive'],
+            ['id' => 122, 'title' => 'Top 5 Home Workout Routines',        'link' => 'https://vimeo.com/workout123',   'position' => 'Custom Shortcode', 'status' => 'Active'],
+            ['id' => 121, 'title' => 'Smartphone Photography Tips',        'link' => 'https://streamable.com/photo-tips','position' => 'After Content',   'status' => 'Inactive'],
+        ];
+        $linked_count = 23;
+        $video_count = 17;
+        $carousel_count = 6;
+    }
+    ?>
+    <div class="mlm-wrap">
+        <div class="mlm-top-header">
+            <h1>
+                <span class="dashicons dashicons-admin-links"></span>
+                Media Link Manager
+            </h1>
+        </div>
+
+        <div class="mlm-stats-grid">
+            <div class="mlm-stat-card">
+                <div class="mlm-stat-icon blue">
+                    <span class="dashicons dashicons-media-document"></span>
+                </div>
+                <div class="mlm-stat-info">
+                    <label>Total Linked Posts</label>
+                    <div class="num"><?php echo $linked_count; ?></div>
+                </div>
+            </div>
+
+            <div class="mlm-stat-card">
+                <div class="mlm-stat-icon purple">
+                    <span class="dashicons dashicons-controls-play"></span>
+                </div>
+                <div class="mlm-stat-info">
+                    <label>Videos</label>
+                    <div class="num"><?php echo $video_count; ?></div>
+                </div>
+            </div>
+
+            <div class="mlm-stat-card">
+                <div class="mlm-stat-icon green">
+                    <span class="dashicons dashicons-format-gallery"></span>
+                </div>
+                <div class="mlm-stat-info">
+                    <label>Image Galleries</label>
+                    <div class="num"><?php echo $carousel_count; ?></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mlm-panel" id="add-new">
+            <div class="mlm-panel-header">
+                <h2>Add New Link</h2>
+            </div>
+            <div class="mlm-panel-body">
+                <form method="post">
+                    <?php wp_nonce_field('mlm_save_link_nonce', 'mlm_save_link_nonce'); ?>
+                    <div class="mlm-form-grid">
+                        <div class="mlm-field">
+                            <label>Select Blog Post</label>
+                            <select name="mlm_post_id" class="mlm-select" required>
+                                <option value="">Search and select a post...</option>
+                                <?php foreach ($posts as $p): ?>
+                                <option value="<?php echo $p->ID; ?>"><?php echo esc_html($p->post_title); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="mlm-field">
+                            <label>Paste Stream Link</label>
+                            <input type="url" name="mlm_stream_link" class="mlm-input" placeholder="https://example.com/stream-link" required>
+                        </div>
+                        <div class="mlm-field">
+                            <label>Display Position</label>
+                            <select name="mlm_position" class="mlm-select">
+                                <option value="Before Content">Before Content</option>
+                                <option value="After Content">After Content</option>
+                                <option value="Custom Shortcode">Custom Shortcode</option>
+                            </select>
+                        </div>
+                        <div>
+                            <button type="submit" name="mlm_save_link" class="mlm-btn mlm-btn-primary">Save Link</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="mlm-panel">
+            <div class="mlm-panel-header">
+                <h2>All Linked Posts</h2>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="text" class="mlm-input" style="width:200px;height:32px;" placeholder="Search posts...">
+                    <button type="button" class="mlm-btn mlm-btn-secondary" style="height:32px;padding:0 12px;font-size:12px;">Search</button>
+                </div>
+            </div>
+
+            <div class="mlm-table-controls">
+                <div class="mlm-controls-left">
+                    <select class="mlm-select" style="width:130px;height:32px;font-size:12px;">
+                        <option>Bulk actions</option>
+                        <option>Delete</option>
+                    </select>
+                    <button type="button" class="mlm-btn mlm-btn-secondary" style="height:32px;padding:0 14px;font-size:12px;">Apply</button>
+                </div>
+                <div class="mlm-controls-right">
+                    <div class="mlm-pagination">
+                        <span><?php echo count($linked_items); ?> items</span>
+                        <a href="#" class="mlm-page-btn">«</a>
+                        <a href="#" class="mlm-page-btn">‹</a>
+                        <input type="text" class="mlm-page-num" value="1">
+                        <span>of 3</span>
+                        <a href="#" class="mlm-page-btn">›</a>
+                        <a href="#" class="mlm-page-btn">»</a>
+                    </div>
+                </div>
+            </div>
+
+            <div style="overflow-x:auto;">
+                <table class="mlm-table">
+                    <thead>
+                        <tr>
+                            <th style="width:30px;"><input type="checkbox"></th>
+                            <th>Post Title <span class="dashicons dashicons-arrow-down-dir" style="font-size:12px;width:12px;height:12px;vertical-align:middle;"></span></th>
+                            <th>Assigned Link</th>
+                            <th>Position</th>
+                            <th>Status</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($linked_items as $item):
+                            $delete_url = wp_nonce_url(admin_url('admin.php?page=mlm-manager&action=delete&post_id=' . $item['id']), 'mlm_delete_link');
+                        ?>
+                        <tr>
+                            <td><input type="checkbox"></td>
+                            <td>
+                                <a href="<?php echo get_permalink($item['id']); ?>" class="mlm-post-title"><?php echo esc_html($item['title']); ?></a>
+                                <div class="mlm-post-id">ID: <?php echo $item['id']; ?></div>
+                            </td>
+                            <td>
+                                <a href="<?php echo esc_url($item['link']); ?>" target="_blank" class="mlm-link-url">
+                                    <?php echo esc_html($item['link']); ?>
+                                    <span class="dashicons dashicons-external" style="font-size:12px;width:12px;height:12px;"></span>
+                                </a>
+                            </td>
+                            <td><?php echo esc_html($item['position']); ?></td>
+                            <td>
+                                <span class="mlm-status-pill <?php echo $item['status'] === 'Active' ? 'mlm-status-active' : 'mlm-status-inactive'; ?>">
+                                    <?php echo esc_html($item['status']); ?>
+                                </span>
+                            </td>
+                            <td style="text-align:right;">
+                                <a href="<?php echo admin_url('post.php?post=' . $item['id'] . '&action=edit'); ?>" class="mlm-action-btn edit" title="Edit Post">
+                                    <span class="dashicons dashicons-edit"></span>
+                                </a>
+                                <a href="<?php echo $delete_url; ?>" onclick="return confirm('Remove link from post?');" class="mlm-action-btn delete" title="Delete Link">
+                                    <span class="dashicons dashicons-trash"></span>
+                                </a>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mlm-table-controls" style="border-top:1px solid #f0f0f1;border-bottom:none;">
+                <div class="mlm-controls-left">
+                    <select class="mlm-select" style="width:130px;height:32px;font-size:12px;">
+                        <option>Bulk actions</option>
+                        <option>Delete</option>
+                    </select>
+                    <button type="button" class="mlm-btn mlm-btn-secondary" style="height:32px;padding:0 14px;font-size:12px;">Apply</button>
+                </div>
+                <div class="mlm-controls-right">
+                    <div class="mlm-pagination">
+                        <span><?php echo count($linked_items); ?> items</span>
+                        <a href="#" class="mlm-page-btn">«</a>
+                        <a href="#" class="mlm-page-btn">‹</a>
+                        <input type="text" class="mlm-page-num" value="1">
+                        <span>of 3</span>
+                        <a href="#" class="mlm-page-btn">›</a>
+                        <a href="#" class="mlm-page-btn">»</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php
+}
+
+function mlm_page_settings() { echo '<div class="mlm-wrap"><h2>Settings</h2><p>Zero configuration required. All stream links are fully decrypted server-side and shielded from bots.</p></div>'; }
+function mlm_page_logs() { echo '<div class="mlm-wrap"><h2>Logs</h2><p>Bot protection active. Zero unauthorized requests detected.</p></div>'; }
+function mlm_page_help() { echo '<div class="mlm-wrap"><h2>Help</h2><p>Paste stream links generated from Media Hoster SaaS into your posts.</p></div>'; }
