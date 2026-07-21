@@ -117,35 +117,18 @@ export default function DashTopbar({ user, isDark, onToggleDark, onUpload, onTog
         Upload Media
       </button>
 
-      {/* Dark/Light Toggle */}
-      <button
-        onClick={onToggleDark}
-        title={isDark ? 'Switch to Light' : 'Switch to Dark'}
-        style={{
-          width: 36, height: 36, borderRadius: 9,
-          border: `1.5px solid ${border}`,
-          background: isDark ? 'rgba(255,255,255,0.06)' : '#F8FAFC',
-          cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: muted, transition: 'all 0.2s', flexShrink: 0,
-        }}
-        onMouseEnter={e => { e.currentTarget.style.borderColor = '#5B5FE8'; e.currentTarget.style.color = '#5B5FE8'; }}
-        onMouseLeave={e => { e.currentTarget.style.borderColor = border; e.currentTarget.style.color = muted; }}
-      >
-        {isDark ? (
-          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="5"/>
-            <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-            <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      {/* Sun/Moon Slider Theme Toggle */}
+      <label className="theme-switch" title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
+        <input type="checkbox" checked={isDark} onChange={onToggleDark} />
+        <span className="slider">
+          <svg className="sun-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
           </svg>
-        ) : (
-          <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24">
+          <svg className="moon-icon" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24">
             <path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
           </svg>
-        )}
-      </button>
+        </span>
+      </label>
 
       {/* Notification Bell */}
       <button style={{

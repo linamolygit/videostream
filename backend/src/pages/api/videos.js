@@ -42,6 +42,7 @@ export default async function handler(req, res) {
       });
       return res.status(200).json({ success: true, videos });
     } catch (error) {
+      console.error('Fetch media error:', error);
       return res.status(500).json({ success: false, error: 'Failed to fetch media library' });
     }
   }
