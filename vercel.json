@@ -1,0 +1,4 @@
+{
+  "buildCommand": "cd backend && prisma generate && next build",
+  "outputDirectory": "backend/.next"
+}
