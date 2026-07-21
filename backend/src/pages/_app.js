@@ -7,12 +7,10 @@ import { useRouter } from 'next/router';
 export default function MyApp({ Component, pageProps }) {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [user, setUser] = useState(null);
+  const [showDropdown, setShowDropdown] = useState(false);
   const router = useRouter();
 
-  // We explicitly want light mode by default
   useEffect(() => {
-    // Only check local storage if they manually saved a preference, 
-    // otherwise default is light mode.
     const saved = localStorage.getItem('theme');
     if (saved === 'dark') {
       setIsDarkMode(true);
@@ -21,7 +19,6 @@ export default function MyApp({ Component, pageProps }) {
       document.body.classList.remove('dark-mode');
     }
 
-    // Check auth status
     fetch('/api/auth/me')
       .then(res => res.json())
       .then(data => {
@@ -46,36 +43,39 @@ export default function MyApp({ Component, pageProps }) {
     }
   };
 
-  // Check if current page is the Dashboard (/app) to hide the SaaS Navbar
-  const isDashboard = false; // We can let the Navbar show everywhere or hide it on specific pages
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setUser(null);
+    setShowDropdown(false);
+    router.push('/login');
+  };
 
   return (
     <>
       <Head>
-        <title>Media Hoster - Enterprise Media Sync</title>
+        <title>Media Hoster — Decoupled VOD & Carousel Streaming SaaS</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      {/* SaaS Global Navbar */}
+      {/* SaaS Sticky Navbar */}
       <nav className="saas-navbar">
         <div className="nav-container">
           <Link href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="logo" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <img src="/logo.png" alt="ThumbCraft Logo" style={{ width: '32px', height: '32px', borderRadius: '8px' }} />
+              <img src="/logo.png" alt="Media Hoster Logo" style={{ width: '32px', height: '32px', borderRadius: '8px' }} />
               <span style={{ fontWeight: '800', fontSize: '20px', letterSpacing: '-0.5px' }}>Media Hoster</span>
             </div>
           </Link>
           
           <div className="nav-links">
-            <Link href="/about">About Us</Link>
-            <Link href="/contact">Contact</Link>
+            <Link href="/">Dashboard</Link>
+            <Link href="/#library">Media Library</Link>
             <Link href="/privacy">Privacy</Link>
             <Link href="/terms">Terms</Link>
-            <Link href="/disclaimer">Disclaimer</Link>
           </div>
 
-          <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '15px', position: 'relative' }}>
             <label className="theme-switch main-theme-toggle" title="Toggle Theme">
               <input type="checkbox" id="themeToggle" checked={isDarkMode} onChange={toggleTheme} />
               <span className="slider">
@@ -89,19 +89,42 @@ export default function MyApp({ Component, pageProps }) {
             </label>
             
             {user ? (
-              <>
-                <Link href="/admin/videos">
-                  <span className="text-sm font-medium hover:text-blue-500 cursor-pointer transition-colors" style={{marginRight: '10px'}}>Manager</span>
-                </Link>
-                <Link href="/profile">
-                  <button className="btn-primary" style={{ padding: '8px 16px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <div style={{width:'20px', height:'20px', background:'rgba(255,255,255,0.2)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center'}}>
-                       {user.username ? user.username.charAt(0).toUpperCase() : 'U'}
-                    </div>
-                    Profile
-                  </button>
-                </Link>
-              </>
+              <div style={{ position: 'relative' }}>
+                <button 
+                  onClick={() => setShowDropdown(!showDropdown)}
+                  className="btn-primary" 
+                  style={{ padding: '8px 16px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <div style={{width:'22px', height:'22px', background:'rgba(255,255,255,0.25)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:'bold'}}>
+                     {user.username ? user.username.charAt(0).toUpperCase() : 'U'}
+                  </div>
+                  <span>{user.username}</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+
+                {showDropdown && (
+                  <div style={{
+                    position: 'absolute', right: 0, top: '45px', width: '180px',
+                    background: 'var(--glass-bg)', backdropFilter: 'blur(20px)',
+                    border: '1px solid var(--glass-border)', borderRadius: '12px',
+                    boxShadow: 'var(--glass-shadow)', padding: '8px 0', zIndex: 1100
+                  }}>
+                    <Link href="/profile" style={{ display: 'block', padding: '8px 16px', color: 'var(--text-main)', textDecoration: 'none', fontSize: '14px' }} onClick={() => setShowDropdown(false)}>
+                      My Profile
+                    </Link>
+                    <Link href="/" style={{ display: 'block', padding: '8px 16px', color: 'var(--text-main)', textDecoration: 'none', fontSize: '14px' }} onClick={() => setShowDropdown(false)}>
+                      Dashboard
+                    </Link>
+                    <div style={{ height: '1px', background: 'var(--glass-border)', margin: '6px 0' }}></div>
+                    <button 
+                      onClick={handleLogout} 
+                      style={{ width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}
+                    >
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <>
                 <Link href="/login">
@@ -116,8 +139,8 @@ export default function MyApp({ Component, pageProps }) {
         </div>
       </nav>
 
-      {/* Main Page Component */}
-      <div style={{ minHeight: 'calc(100vh - 200px)' }}>
+      {/* Main Content */}
+      <div style={{ minHeight: 'calc(100vh - 220px)' }}>
         <Component {...pageProps} />
       </div>
 
@@ -126,22 +149,22 @@ export default function MyApp({ Component, pageProps }) {
         <div className="footer-container">
           <div className="footer-col">
             <h4>Media Hoster</h4>
-            <p>Enterprise media syncing and secure ghost player routing built for the modern web.</p>
+            <p>Open-source multi-tenant media hosting SaaS. Stream videos and image carousels securely to WordPress.</p>
           </div>
           <div className="footer-col">
-            <h4>Quick Links</h4>
-            <Link href="/about">About Us</Link>
-            <Link href="/contact">Contact Us</Link>
+            <h4>Product</h4>
+            <Link href="/">Dashboard</Link>
+            <Link href="/#library">Media Library</Link>
+            <a href="https://github.com/linamolygit/videostream" target="_blank" rel="noreferrer">GitHub (Open Source)</a>
           </div>
           <div className="footer-col">
             <h4>Legal</h4>
             <Link href="/privacy">Privacy Policy</Link>
             <Link href="/terms">Terms of Service</Link>
-            <Link href="/disclaimer">Disclaimer</Link>
           </div>
         </div>
         <div className="footer-bottom">
-          &copy; {new Date().getFullYear()} Media Hoster. All rights reserved.
+          &copy; {new Date().getFullYear()} Media Hoster. Open Source Software.
         </div>
       </footer>
       

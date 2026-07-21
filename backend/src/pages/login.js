@@ -46,7 +46,7 @@ export default function Login() {
         <div style={{ textAlign: 'center', marginBottom: '10px' }}>
           <h2>Welcome Back</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '5px' }}>
-            Sign in to continue to ThumbCraft Studio.
+            Sign in to continue to Media Hoster SaaS.
           </p>
         </div>
 

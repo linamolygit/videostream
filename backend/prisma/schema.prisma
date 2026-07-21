@@ -22,11 +22,14 @@ model Video {
   id                  Int      @id @default(autoincrement())
   video_uuid          String   @unique @db.VarChar(255)
   title               String   @db.VarChar(255)
-  thumbnail_path      String   @db.Text
-  original_source_url String   @db.Text
-  file_name           String   @db.VarChar(255)
+  media_type          String   @default("video") @db.VarChar(50)
+  thumbnail_path      String?  @db.Text
+  original_source_url String?  @db.Text
+  carousel_images     String?  @db.Text
+  file_name           String?  @db.VarChar(255)
   user_id             Int?     
   created_at          DateTime @default(now())
 
   @@index([video_uuid])
+  @@index([user_id])
 }

@@ -52,7 +52,7 @@ export default function Signup() {
         <div style={{ textAlign: 'center', marginBottom: '10px' }}>
           <h2>Create Account</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '5px' }}>
-            Join ThumbCraft Studio today.
+            Join Media Hoster SaaS today.
           </p>
         </div>
 

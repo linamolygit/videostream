@@ -1,92 +1,141 @@
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 
 const prisma = new PrismaClient();
 
-export default async function handler(req, res) {
-  // Simple Authentication: In a real app, use next-auth or JWT validation middleware here
+async function getAuthUser(req) {
   const { authorization } = req.headers;
-  
-  // For the sake of this admin interface, we'll accept a bearer token or session cookie validation
-  let user = null;
+  let userId = null;
+
   if (authorization && authorization.startsWith('Bearer ')) {
     const token = authorization.split(' ')[1];
-    user = await prisma.user.findUnique({ where: { api_token: token } });
-  } else if (req.cookies && req.cookies.auth_token) {
-    // Session auth via HttpOnly cookie
+    const userByToken = await prisma.user.findUnique({ where: { api_token: token } });
+    if (userByToken) return userByToken;
+  }
+
+  if (req.cookies && req.cookies.auth_token) {
     try {
-      const jwt = require('jsonwebtoken');
       const decoded = jwt.verify(req.cookies.auth_token, process.env.JWT_SECRET || 'fallback-secret');
-      user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+      userId = decoded.userId;
     } catch (e) {
-      console.error("JWT Verify Error in videos API:", e);
+      return null;
     }
   }
 
-  // GET: Fetch all videos
+  if (!userId) return null;
+  return await prisma.user.findUnique({ where: { id: userId } });
+}
+
+export default async function handler(req, res) {
+  const user = await getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ success: false, error: 'Unauthorized. Please login.' });
+  }
+
+  // GET: Fetch user's own media items (Strict Multi-Tenant Scoping)
   if (req.method === 'GET') {
-    if (!user) return res.status(401).json({ error: 'Unauthorized Admin' });
     try {
-      const videos = await prisma.video.findMany({ orderBy: { created_at: 'desc' } });
+      const videos = await prisma.video.findMany({
+        where: { user_id: user.id },
+        orderBy: { created_at: 'desc' }
+      });
       return res.status(200).json({ success: true, videos });
     } catch (error) {
-      return res.status(500).json({ error: 'Failed to fetch videos' });
+      return res.status(500).json({ success: false, error: 'Failed to fetch media library' });
     }
   }
 
-  // POST: Create a new video
+  // POST: Create a new Video or Carousel Media Item
   if (req.method === 'POST') {
-    if (!user) return res.status(401).json({ error: 'Unauthorized Admin' });
     try {
-      const title = req.body.title;
-      const thumbnail_path = req.body.thumbnail_path || req.body.thumbnail_url;
-      const original_source_url = req.body.original_source_url || req.body.video_url;
-      const file_name = req.body.file_name;
+      const { title, media_type, thumbnail_path, original_source_url, carousel_images, file_name } = req.body;
 
-      if (!title || !thumbnail_path || !original_source_url) {
-        return res.status(400).json({ error: 'Missing required fields' });
+      if (!title) {
+        return res.status(400).json({ success: false, error: 'Title is required' });
       }
 
-      // Generate unique video UUID
+      const type = media_type === 'carousel' ? 'carousel' : 'video';
+
+      let finalThumb = thumbnail_path;
+      let carouselJson = null;
+
+      if (type === 'video') {
+        // Mandatory Thumbnail Validation for Videos
+        if (!finalThumb) {
+          return res.status(400).json({ success: false, error: 'Mandatory thumbnail image is required for video uploads.' });
+        }
+        if (!original_source_url) {
+          return res.status(400).json({ success: false, error: 'Original video source URL is required.' });
+        }
+      } else if (type === 'carousel') {
+        let imagesArray = [];
+        if (Array.isArray(carousel_images)) {
+          imagesArray = carousel_images;
+        } else if (typeof carousel_images === 'string') {
+          imagesArray = carousel_images.split('\n').map(u => u.trim()).filter(Boolean);
+        }
+
+        if (imagesArray.length === 0) {
+          return res.status(400).json({ success: false, error: 'At least one image URL is required for carousel sets.' });
+        }
+
+        carouselJson = JSON.stringify(imagesArray);
+        if (!finalThumb) {
+          finalThumb = imagesArray[0]; // Use first image as thumbnail fallback
+        }
+      }
+
+      // Generate 32-character hex UUID
       let video_uuid;
       let isUnique = false;
       while (!isUnique) {
-        video_uuid = crypto.randomBytes(16).toString('hex'); // 32 char hex string
+        video_uuid = crypto.randomBytes(16).toString('hex');
         const existing = await prisma.video.findUnique({ where: { video_uuid } });
         if (!existing) isUnique = true;
       }
 
-      const generated_file_name = file_name || original_source_url.split('/').pop() || `${video_uuid}.mp4`;
+      const generatedFileName = file_name || (original_source_url ? original_source_url.split('/').pop() : `${video_uuid}.mp4`);
 
       const video = await prisma.video.create({
         data: {
           video_uuid,
           title,
-          thumbnail_path,
-          original_source_url,
-          file_name: generated_file_name,
+          media_type: type,
+          thumbnail_path: finalThumb,
+          original_source_url: original_source_url || null,
+          carousel_images: carouselJson,
+          file_name: generatedFileName,
           user_id: user.id
         }
       });
 
       return res.status(201).json({ success: true, video });
     } catch (error) {
-      console.error('Create video error:', error);
-      return res.status(500).json({ error: 'Internal Server Error' });
+      console.error('Create media error:', error);
+      return res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
   }
 
-  // DELETE: Delete a video
+  // DELETE: Delete a media item (Strict Multi-Tenant Check)
   if (req.method === 'DELETE') {
-    if (!user) return res.status(401).json({ error: 'Unauthorized Admin' });
     try {
       const { id } = req.body;
-      if (!id) return res.status(400).json({ error: 'Missing video id' });
+      if (!id) return res.status(400).json({ success: false, error: 'Missing media id' });
+
+      // Verify item belongs to logged-in user
+      const existing = await prisma.video.findFirst({
+        where: { id: parseInt(id), user_id: user.id }
+      });
+
+      if (!existing) {
+        return res.status(404).json({ success: false, error: 'Media item not found or unauthorized' });
+      }
 
       await prisma.video.delete({ where: { id: parseInt(id) } });
       return res.status(200).json({ success: true });
     } catch (error) {
-      return res.status(500).json({ error: 'Failed to delete video' });
+      return res.status(500).json({ success: false, error: 'Failed to delete media item' });
     }
   }
 

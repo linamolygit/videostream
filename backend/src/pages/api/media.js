@@ -8,7 +8,7 @@ const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL) : null;
 const SECRET_SALT = process.env.SECRET_SALT || "enterprise_super_secret_salt_123";
 const WORKER_URL = process.env.WORKER_URL || "https://withered-term-6150.ledepamu.workers.dev/fast_stream";
 
-// In-memory rate limiting store (30 requests per minute per IP)
+// In-memory sliding-window IP rate limiting (30 req / min)
 const rateLimitMap = new Map();
 function checkRateLimit(ip) {
     const now = Date.now();
@@ -26,9 +26,9 @@ function checkRateLimit(ip) {
     return record.count <= limit;
 }
 
-// AES-256-CBC Helper Function
+// AES-256-CBC Token Encryptor
 function encryptToken(payloadObj) {
-    const key = crypto.createHash('sha256').update(SECRET_SALT).digest(); // 32 bytes key
+    const key = crypto.createHash('sha256').update(SECRET_SALT).digest();
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
     
@@ -49,7 +49,6 @@ export default async function handler(req, res) {
         return res.status(200).end();
     }
 
-    // Rate limiting check
     const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
     if (!checkRateLimit(clientIp)) {
         return res.status(429).json({ success: false, error: "Too many requests. Please try again later." });
@@ -62,61 +61,54 @@ export default async function handler(req, res) {
     }
 
     try {
-        // Action 1: Get Secure Thumbnail
-        if (action === "get_thumb") {
-            let thumbPath = null;
-            if (redis) {
-                thumbPath = await redis.get(`video_thumb:${uuid}`);
-            }
-
-            if (!thumbPath) {
-                const video = await prisma.video.findUnique({
-                    where: { video_uuid: uuid },
-                    select: { thumbnail_path: true }
-                });
-                if (!video) return res.status(404).json({ success: false, error: "Video not found" });
-                thumbPath = video.thumbnail_path;
-                if (redis) {
-                    await redis.set(`video_thumb:${uuid}`, thumbPath, "EX", 3600); // 1 hour cache
-                }
-            }
-
-            return res.status(200).json({ success: true, thumbnail: thumbPath });
+        // Fetch Video/Media record
+        let video = null;
+        if (redis) {
+            const cachedMeta = await redis.get(`video_meta:${uuid}`);
+            if (cachedMeta) video = JSON.parse(cachedMeta);
         }
 
-        // Action 2: Get Secure Stream Link
-        if (action === "get_stream") {
-            let video = null;
+        if (!video) {
+            video = await prisma.video.findUnique({ where: { video_uuid: uuid } });
+            if (!video) return res.status(404).json({ success: false, error: "Media not found" });
             if (redis) {
-                const cachedMeta = await redis.get(`video_meta:${uuid}`);
-                if (cachedMeta) video = JSON.parse(cachedMeta);
+                await redis.set(`video_meta:${uuid}`, JSON.stringify(video), "EX", 3600);
+            }
+        }
+
+        const isCarousel = video.media_type === 'carousel';
+        let imagesList = [];
+        if (isCarousel && video.carousel_images) {
+            try { imagesList = JSON.parse(video.carousel_images); } catch(e) { imagesList = []; }
+        }
+
+        // Action 1: Get Secure Thumbnail / Carousel Info
+        if (action === "get_thumb") {
+            return res.status(200).json({
+                success: true,
+                media_type: video.media_type || 'video',
+                thumbnail: video.thumbnail_path || (imagesList[0] || null),
+                images: imagesList
+            });
+        }
+
+        // Action 2: Get Secure Stream / Player Markup
+        if (action === "get_stream") {
+            if (isCarousel) {
+                return res.status(200).json({
+                    success: true,
+                    media_type: 'carousel',
+                    images: imagesList
+                });
             }
 
-            if (!video) {
-                video = await prisma.video.findUnique({ where: { video_uuid: uuid } });
-                if (!video) return res.status(404).json({ success: false, error: "Video not found" });
-                if (redis) {
-                    await redis.set(`video_meta:${uuid}`, JSON.stringify(video), "EX", 3600);
-                }
-            }
-
-            if (video.source_type === "iframe") {
-                const iframe_html = `
-                <div style="width:100%; aspect-ratio:16/9; border-radius:12px; overflow:hidden; box-shadow:0 4px 15px rgba(0,0,0,0.3);">
-                    <iframe src="${video.original_source_url}" style="width:100%; height:100%; border:none;" allowfullscreen></iframe>
-                </div>`;
-                return res.status(200).json({ success: true, player_html: iframe_html });
-            }
-
-            // Expirable token valid for 15 minutes (900s)
+            // Generate Cryptographic Streaming Token (15 min validity)
             const expires = Math.floor(Date.now() / 1000) + 900;
             const actionStr = 'stream';
             
-            // True HMAC-SHA256 signature including source and filename
             const dataToSign = `${uuid}:${expires}:${actionStr}:${video.original_source_url}:${video.file_name}`;
             const signature = crypto.createHmac('sha256', SECRET_SALT).update(dataToSign).digest('hex');
 
-            // Construct payload
             const payload = {
                 uuid: video.video_uuid,
                 action: actionStr,
@@ -126,13 +118,12 @@ export default async function handler(req, res) {
                 signature: signature
             };
 
-            // AES-256-CBC Encrypted Token (Prevents DevTools Base64 decode URL leakage)
             const streamToken = encryptToken(payload);
             const streamUrl = `${WORKER_URL}?token=${streamToken}`;
 
             const player_html = `
             <style>
-                .ems-video-wrapper { width:100%; max-width:800px; background:#000; border-radius:12px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.4); margin: 0 auto; }
+                .ems-video-wrapper { width:100%; max-width:850px; background:#000; border-radius:14px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.3); margin:0 auto; }
                 .ems-player { width:100%; aspect-ratio:16/9; display:block; }
                 @media (max-width: 768px) { .ems-player { aspect-ratio: 9/16; object-fit: cover; } }
             </style>
@@ -142,10 +133,10 @@ export default async function handler(req, res) {
                 </video>
             </div>`;
 
-            return res.status(200).json({ success: true, player_html });
+            return res.status(200).json({ success: true, player_html, stream_url: streamUrl });
         }
 
-        return res.status(400).json({ success: false, error: "Invalid action parameter" });
+        return res.status(400).json({ success: false, error: "Invalid action" });
 
     } catch (error) {
         return res.status(500).json({ success: false, error: error.message });
