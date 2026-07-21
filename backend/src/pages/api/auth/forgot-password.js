@@ -22,8 +22,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ message: 'If this email exists, a code has been sent.' });
     }
 
-    // Generate a 4-digit code
-    const resetCode = Math.floor(1000 + Math.random() * 9000).toString();
+    // Generate a 6-digit cryptographically secure OTP code
+    const resetCode = crypto.randomInt(100000, 999999).toString();
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
     // Update user record

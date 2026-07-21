@@ -12,7 +12,7 @@ model User {
   username           String   @unique @db.VarChar(100)
   email              String   @unique @db.VarChar(255)
   password_hash      String   @db.VarChar(255)
-  reset_code         String?  @db.VarChar(4)
+  reset_code         String?  @db.VarChar(10)
   reset_code_expires DateTime?
   api_token          String?  @unique @db.VarChar(255)
   created_at         DateTime @default(now())

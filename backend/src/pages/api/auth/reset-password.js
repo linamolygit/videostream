@@ -26,8 +26,8 @@ export default async function handler(req, res) {
       return res.status(400).json({ message: 'Code has expired. Please request a new one.' });
     }
 
-    // Hash new password
-    const salt = await bcrypt.genSalt(10);
+    // Hash new password (12 rounds)
+    const salt = await bcrypt.genSalt(12);
     const password_hash = await bcrypt.hash(newPassword, salt);
 
     // Update user

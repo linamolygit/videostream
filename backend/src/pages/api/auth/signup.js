@@ -27,8 +27,8 @@ export default async function handler(req, res) {
       return res.status(409).json({ message: 'Username or Email already exists.' });
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
+    // Hash password (12 rounds)
+    const salt = await bcrypt.genSalt(12);
     const password_hash = await bcrypt.hash(password, salt);
 
     // Generate API Token

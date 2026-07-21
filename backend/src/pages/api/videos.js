@@ -51,7 +51,7 @@ export default async function handler(req, res) {
       let video_uuid;
       let isUnique = false;
       while (!isUnique) {
-        video_uuid = crypto.randomBytes(4).toString('hex'); // 8 char hex string
+        video_uuid = crypto.randomBytes(16).toString('hex'); // 32 char hex string
         const existing = await prisma.video.findUnique({ where: { video_uuid } });
         if (!existing) isUnique = true;
       }
