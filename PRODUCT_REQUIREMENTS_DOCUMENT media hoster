@@ -1,0 +1,527 @@
+# 📋 Product Requirements Document (PRD)
+# Media Hoster — Secure Serverless VOD Platform
+
+**Version:** 6.0  
+**Author:** RishavDev  
+**Last Updated:** July 2025  
+**Status:** Production
+
+---
+
+## 🎯 1. Product Overview (Ye Kya Hai?)
+
+**Media Hoster** ek enterprise-grade, serverless **Video-on-Demand (VOD) streaming platform** hai jo teen major technologies ko milake kaam karta hai:
+
+1. **WordPress** — Content publish karne ki jagah (tumhara main blog/website)
+2. **Next.js on Vercel** — Backend server jahan database aur authentication hai
+3. **Cloudflare Worker** — Edge streaming engine jo video deliver karta hai
+
+### Core Philosophy (Kyun Banaya?)
+
+> **Problem:** Agar tum apni WordPress post mein seedha video ka link daalo (YouTube, Videy, etc.), toh:
+> - Google AdX reviewer us link ko dekh sakta hai → **Ad disapproval**
+> - Competitors tumhara video source chura sakte hain
+> - Direct links scrape ho sakte hain → **Bandwidth theft**
+> - Video CDN ka URL visitors ko pata chal jata hai
+
+> **Solution:** Ek aisi system jahan WordPress post mein sirf ek **8-character UUID** hota hai (jaise `a1b2c3d4`). Asli video ka link sirf backend database mein chhipa hota hai. User jab play button press karta hai tab ek **cryptographic token** banta hai jiske zariye Cloudflare Worker video stream karta hai — bina asli URL kabhi expose kiye.
+
+---
+
+## 🏛️ 2. System Architecture (Poora System Kaise Bana Hai?)
+
+```
+[ Visitor Browser ]
+      │
+      ├──(1) Page Load ─────────────────────────────▶ [ WordPress Site ]
+      │                                                      │
+      │                                              (Bot check karein)
+      │                                                      │
+      ├──(2) Fetch Thumbnail ◀───────────────────────────────┤
+      │
+      ├──(3) Play Click + Token Request ───────────▶ [ Next.js Backend ]
+      │                                               (Vercel Serverless)
+      │                                               DB → HMAC Token
+      │
+      ├──(4) Token URL ◀────────────────────────────────────-┘
+      │      (Cloudflare Worker URL + encrypted token)
+      │
+      ├──(5) Stream Request ────────────────────────▶ [ Cloudflare Worker ]
+      │                                                (Edge - Global CDN)
+      │                                                Token verify + fetch
+      │
+      ├──(6) Video Chunks 206 Partial ◀────────────────────--┤
+      │      (Zero-Copy, Range-aware streaming)
+      ▼
+[ Video plays! No buffering. Source URL never exposed. ]
+```
+
+---
+
+## 🧩 3. Components in Detail (Har Part Kya Karta Hai?)
+
+### Component 1: WordPress Plugin — "Media Link Manager" (v6.0)
+**File:** `wp-content/plugins/advanced-media-sync/advanced-media-sync.php`
+
+#### Dashboard Pages:
+
+| Page | Kaam |
+|---|---|
+| **Dashboard** | Stats cards, media links table, quick-add form, post preview |
+| **Media Links** | Database se saari videos ki full table |
+| **Add New Link** | Next.js Video Manager ka direct link + 3-step guide |
+| **Blog Posts** | Posts ko video UUID assign karo (dropdown se) |
+| **Analytics** | Analytics panel (Pro feature) |
+| **Settings** | Next.js URL aur API Token configure karo |
+| **Documentation** | Step-by-step setup guide |
+
+#### Bot Detection Logic:
+```php
+$bots = ['bot', 'crawl', 'spider', 'slurp', 'facebookexternalhit', 
+         'mediapartners-google', 'adsbot-google', 'googlebot', 
+         'adx', 'applebot', 'bingbot'];
+// Bot hai → Sirf article text dikhao (no video)
+// Real human + social traffic → Ghost thumbnail + player inject karo
+```
+
+#### Social Traffic Detection:
+```php
+// Facebook/Instagram se aane wale users:
+isset($_GET['fbclid'])   // Facebook Click ID (FB ads)
+isset($_GET['igshid'])   // Instagram Share ID
+preg_match('/(FBAN|FBAV|FB_IAB|Instagram|IG_IAB)/i', $ua)
+strpos($referer, 'facebook.com') !== false
+```
+
+#### JavaScript Ghost Player Flow:
+```javascript
+// Step 1: Thumbnail fetch
+fetch('/api/media?action=get_thumb&uuid=a1b2c3d4')
+// Response: { success: true, thumbnail: "https://cdn/thumb.jpg" }
+
+// Step 2: Show thumbnail with play button (fake image - no actual video element)
+
+// Step 3: User click
+if (!e.isTrusted) return; // Bots ke automatic clicks REJECT
+
+// Step 4: Stream token maango
+fetch('/api/media?action=get_stream&uuid=a1b2c3d4')
+// Response: { success: true, player_html: "<video src='worker_url?token=XYZ'>..." }
+
+// Step 5: Player inject karo
+container.innerHTML = streamData.player_html;
+```
+
+---
+
+### Component 2: Next.js Backend — "Media Hoster SaaS"
+**Location:** `backend/` folder  
+**Deployment:** Vercel (Serverless Functions)  
+**Live URL:** `https://backend-nine-smoky-38.vercel.app`
+
+#### Tech Stack:
+- **Framework:** Next.js 14 (Pages Router)
+- **Database ORM:** Prisma v5 → MySQL (Hostinger)
+- **Cache:** Redis (ioredis) — 1 hour TTL
+- **Auth:** JWT (jsonwebtoken) + HTTP-Only Cookies
+- **Password:** bcryptjs (bcrypt hashing, salt rounds: 10)
+- **Email:** Nodemailer (forgot password 4-digit OTP)
+
+#### API Endpoints:
+
+| Endpoint | Method | Kaam |
+|---|---|---|
+| `/api/auth/signup` | POST | Naya user + API token generate |
+| `/api/auth/login` | POST | JWT cookie set karo |
+| `/api/auth/logout` | POST | Cookie clear karo |
+| `/api/auth/me` | GET | Current user info (+ api_token) |
+| `/api/auth/forgot-password` | POST | 4-digit OTP email bhejo |
+| `/api/auth/reset-password` | POST | OTP verify + new password |
+| `/api/videos` | GET/POST/DELETE | Admin: Video CRUD |
+| `/api/media` | GET | ⭐ Public: Thumbnail + Stream Token |
+
+---
+
+### Component 2A: Database Schema (MySQL via Prisma)
+
+#### Table: `User`
+```sql
+id              INT          PRIMARY KEY AUTO_INCREMENT
+username        VARCHAR(100) UNIQUE
+email           VARCHAR(255) UNIQUE  
+password_hash   VARCHAR(255)          -- bcrypt hashed (10 rounds)
+reset_code      VARCHAR(4)   NULL     -- 4-digit OTP for forgot password
+reset_code_expires DATETIME  NULL     -- OTP 15 min expiry
+api_token       VARCHAR(255) UNIQUE   -- 48-char hex token (WordPress plugin ke liye)
+created_at      DATETIME     DEFAULT NOW()
+```
+
+#### Table: `Video`
+```sql
+id                  INT          PRIMARY KEY AUTO_INCREMENT
+video_uuid          VARCHAR(255) UNIQUE   -- 8-char hex (e.g., "a1b2c3d4")
+title               VARCHAR(255)          -- Human readable title
+thumbnail_path      TEXT                  -- Public CDN URL of thumbnail
+original_source_url TEXT                  -- ⚠️ HIDDEN: Actual video URL
+file_name           VARCHAR(255)          -- Download filename
+user_id             INT          NULL     -- FK to User
+created_at          DATETIME     DEFAULT NOW()
+INDEX on (video_uuid)
+```
+
+> **⚠️ Security:** `original_source_url` kabhi bhi browser ko directly nahi diya jata. Ye sirf database mein aur encrypted token ke andar hota hai.
+
+---
+
+### Component 2B: Authentication System
+
+#### Signup Flow:
+```
+POST /api/auth/signup { username, email, password }
+  → Check: username/email exists?
+  → bcrypt.hash(password, 10) → password_hash
+  → crypto.randomBytes(24).toString('hex') → api_token (48 chars)
+  → DB mein save (User table)
+  → 201 Created
+```
+
+#### Login Flow:
+```
+POST /api/auth/login { identifier, password, rememberMe }
+  → DB se user fetch by username OR email
+  → bcrypt.compare(password, hash) → match?
+  → jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: rememberMe ? '30d' : '24h' })
+  → HTTP-Only Cookie: auth_token = <jwt>
+  → 200 OK → Redirect to homepage
+```
+
+#### Session Check:
+```
+GET /api/auth/me (Cookie: auth_token = <jwt>)
+  → jwt.verify(cookie, JWT_SECRET) → { userId }
+  → DB se user: { id, username, email, api_token }
+  → 200 OK (api_token bhi diya profile page ke liye)
+```
+
+#### Forgot Password Flow:
+```
+POST /api/auth/forgot-password { email }
+  → 4-digit code: Math.floor(1000 + Math.random() * 9000)
+  → DB mein save: reset_code, reset_code_expires (now + 15 min)
+  → Nodemailer email: "Your code is: 1234"
+
+POST /api/auth/reset-password { email, code, newPassword }
+  → DB check: code match + not expired?
+  → bcrypt.hash(newPassword) → update DB
+  → reset_code = null
+```
+
+---
+
+### Component 2C: Media API — The Token Issuer (`/api/media`)
+
+#### Action 1: `get_thumb`
+```
+GET /api/media?action=get_thumb&uuid=a1b2c3d4
+  Step 1: Redis cache check → redis.get('video_meta:a1b2c3d4')
+  Step 2 (cache miss): MySQL fetch WHERE video_uuid = 'a1b2c3d4'
+  Step 3: Redis mein cache karo (EX 3600 = 1 hour)
+  Response: { success: true, thumbnail: "https://r2.dev/thumb.jpg" }
+```
+
+> **Redis Caching:** Ek baar DB hit ke baad agle 1 ghante tak har request Redis se serve hogi. High traffic mein MySQL overload nahi hogi.
+
+#### Action 2: `get_stream` (Most Important!)
+```
+GET /api/media?action=get_stream&uuid=a1b2c3d4
+  Step 1: Video fetch (Redis/MySQL)
+  Step 2: Token expiry = now + 3600 seconds (1 hour)
+  Step 3: HMAC Signature:
+          dataToSign = "a1b2c3d4:1720000000:stream:SECRET_SALT"
+          signature  = sha256(dataToSign) → "4f3a9b..." (64-char hex)
+  Step 4: Payload object:
+          {
+            uuid: "a1b2c3d4",
+            action: "stream",
+            source: "https://qu.ax/video.mp4",  ← HIDDEN URL
+            filename: "video.mp4",
+            expires: 1720000000,
+            signature: "4f3a9b..."
+          }
+  Step 5: Base64 encode → streamToken
+  Step 6: streamUrl = "https://worker.dev/fast_stream?token=<base64>"
+  Step 7: HTML player inject with streamUrl as <video src>
+  Response: { success: true, player_html: "<style>...</style><video>..." }
+```
+
+---
+
+### Component 3: Cloudflare Worker — "The Projector Room"
+**File:** `cf-media-worker/src/index.js`  
+**Routes:** `/fast_stream` | `/download`
+
+#### Token Verification Flow:
+```javascript
+// Step 1: Decode
+const payload = JSON.parse(atob(token));
+const { uuid, action, source, filename, expires, signature } = payload;
+
+// Step 2: Route check
+// /fast_stream pe sirf action="stream" allowed
+if (pathname === '/fast_stream' && action !== 'stream') → 403
+
+// Step 3: Expiry check
+if (Math.floor(Date.now()/1000) > expires) → 403 "Token expired"
+
+// Step 4: Signature re-verify (Tamper Prevention!)
+dataToSign = `${uuid}:${expires}:${action}:${SECRET_SALT}`
+expectedSig = sha256(dataToSign)
+if (signature !== expectedSig) → 401 "Invalid Signature"
+// Agar koi source URL change karne ki koshish kare → signature mismatch → reject
+
+// Step 5: Zero-Copy Streaming
+const clientRange = request.headers.get('Range'); // Seeking support
+fetchHeaders.set('Range', clientRange);           // Forward to source
+const sourceResponse = await fetch(source, { headers: fetchHeaders });
+
+// Step 6: Pipe response directly (no buffering in RAM)
+return new Response(sourceResponse.body, {
+  status: sourceResponse.status,  // 206 Partial Content for seeking
+  headers: {
+    'Content-Type': 'video/mp4',
+    'Accept-Ranges': 'bytes',      // Seeking enable
+    'Cache-Control': 'public, max-age=86400'  // 24 hour edge cache
+  }
+});
+```
+
+#### HTTP Range Requests (Seeking):
+```
+User "30 second aage skip" karta hai
+  → Browser: Range: bytes=15000000-
+  → Worker: Forward range to source
+  → Source: HTTP 206 Partial Content
+  → User: Seedha us point se video start (no buffering from start!)
+```
+
+---
+
+## 🔐 4. Security Architecture
+
+### Layer 1: API Token (WordPress ↔ Next.js)
+- 48-char random hex token signup par generate hota hai
+- WordPress plugin Settings mein paste karna hota hai
+- `Authorization: Bearer <token>` header se Next.js verify karta hai
+
+### Layer 2: JWT Session (User ↔ Next.js)
+- `auth_token` HTTP-Only cookie (JavaScript se readable nahi)
+- Payload: `{ userId, username, iat, exp }`
+- Remember me: 30 din | Normal: 24 ghante
+
+### Layer 3: HMAC-SHA256 Token (Next.js → Cloudflare Worker)
+```
+Signature Input:  "uuid:expires:action:SECRET_SALT"
+Algorithm:        SHA-256
+Output:           64-char hex signature
+
+Security guarantee:
+  - Koi token ke `source` URL ko change kare → Signature mismatch → 401
+  - Bina SECRET_SALT ke valid signature impossible
+  - Token 1 hour baad expire → Captured tokens useless
+```
+
+### Layer 4: `e.isTrusted` Bot Prevention
+```javascript
+element.addEventListener('click', function(e) {
+  if (!e.isTrusted) return; // Programmatic clicks = false → REJECT
+  // Real human mouse click = true → Proceed
+});
+// Bots element.click() se token nahi nikaal paate!
+```
+
+### Layer 5: Token Expiry
+- Har token exactly 1 ghante ke baad expire
+- Dobara play karne ke liye naya token automatically generate hota hai
+
+---
+
+## 📂 5. File Structure
+
+```
+Video stream vercel for wordpress/
+│
+├── backend/                             ← Next.js SaaS Application
+│   ├── prisma/schema.prisma             ← DB schema (User + Video)
+│   ├── public/favicon.ico + logo.png   ← Brand assets
+│   ├── src/pages/
+│   │   ├── _app.js                      ← Global layout (Navbar + Footer + Auth)
+│   │   ├── index.js                     ← Homepage SaaS landing
+│   │   ├── login.js                     ← Login (eye icon, remember me)
+│   │   ├── signup.js                    ← Signup (terms, eye icon)
+│   │   ├── forgot-password.js          ← OTP flow
+│   │   ├── profile.js                   ← API Token (eye + copy button)
+│   │   ├── dashboard.js                 ← Analytics
+│   │   ├── privacy.js + terms.js       ← Legal pages
+│   │   ├── admin/videos.js             ← Video CRUD admin
+│   │   └── api/
+│   │       ├── auth/ (signup, login, logout, me, forgot, reset)
+│   │       ├── media.js                 ← ⭐ Core: Thumbnail + Token
+│   │       ├── videos.js               ← Admin CRUD API
+│   │       └── generate-token.js
+│   ├── src/styles/globals.css          ← Apple Glass UI styles
+│   └── package.json
+│
+├── cf-media-worker/                     ← Cloudflare Worker
+│   ├── src/index.js                     ← ⭐ Core: Token verify + Stream
+│   └── wrangler.toml                    ← R2 binding config
+│
+├── workers/                             ← Alternative Workers
+│   ├── stream/src/index.js
+│   └── download/src/index.js
+│
+└── wp-content/plugins/advanced-media-sync/
+    └── advanced-media-sync.php          ← ⭐ WordPress Plugin v6.0
+```
+
+---
+
+## ⚙️ 6. Environment Variables
+
+### Next.js (Vercel Dashboard / `.env`):
+
+| Variable | Example | Kaam |
+|---|---|---|
+| `DATABASE_URL` | `mysql://user:pass@srv.hstgr.io:3306/db` | MySQL |
+| `JWT_SECRET` | `my_jwt_secret_2025` | Session signing |
+| `SECRET_SALT` | `enterprise_super_secret_salt_123` | HMAC token (same as worker!) |
+| `REDIS_URL` | `redis://default:pass@host:6379` | Cache (optional) |
+| `EMAIL_USER` | `noreply@domain.com` | OTP email sender |
+| `EMAIL_PASS` | `app_password` | Email password |
+
+### Cloudflare Worker (`wrangler secret put`):
+
+| Variable | Kaam |
+|---|---|
+| `SECRET_SALT` | **Same value as Next.js** — must match exactly! |
+
+> **⚠️ Critical:** `SECRET_SALT` dono jagah identical hona chahiye. Different hai toh signature fail → koi video play nahi hogi.
+
+---
+
+## 🚀 7. Admin Daily Workflow
+
+### Video Add Karna:
+```
+1. https://backend-nine-smoky-38.vercel.app/admin/videos par jaao
+2. Form fill karo:
+   Title:          "My Viral Video"
+   Thumbnail URL:  "https://r2.dev/thumb123.jpg"
+   Source URL:     "https://qu.ax/video123.mp4"  ← HIDDEN, never exposed
+3. Submit → UUID mile: "a1b2c3d4"
+```
+
+### WordPress Post mein Assign:
+```
+Option A: WP Admin → Media Link Manager → Blog Posts
+          Post select + UUID select → "Assign Video"
+
+Option B: Post editor mein shortcode:
+          [ems_video uuid="a1b2c3d4"]
+```
+
+---
+
+## 📊 8. Full Visitor Journey (Step-by-Step)
+
+```
+Step 1 — Page Load
+   User Facebook ad click karta hai
+   WordPress post load
+   PHP: Bot? (User-Agent) → Bot hai → Only article text, no video
+   PHP: Social traffic? (fbclid param) → Yes → Inject player JS
+
+Step 2 — Ghost Thumbnail
+   JS: fetch('/api/media?action=get_thumb&uuid=a1b2c3d4')
+   Next.js: Redis check → MySQL → return thumbnail URL
+   Screen: Image + play button overlay (actual video element nahi!)
+
+Step 3 — Play Click
+   User clicks play → e.isTrusted = true (real click)
+   Show: "Loading secure stream..."
+
+Step 4 — Token Request
+   JS: fetch('/api/media?action=get_stream&uuid=a1b2c3d4')
+   Next.js:
+     1. Redis/MySQL se video info
+     2. expires = now + 3600
+     3. HMAC sha256("uuid:expires:stream:SALT") = signature
+     4. payload = { uuid, action, source(HIDDEN), filename, expires, signature }
+     5. token = base64(JSON.stringify(payload))
+     6. Return: player_html with <video src="worker?token=XYZ">
+
+Step 5 — Player Inject
+   JS: container.innerHTML = player_html
+   Browser: Starts video request to Cloudflare Worker
+
+Step 6 — Edge Streaming
+   Browser → Worker: GET /fast_stream?token=XYZ
+                     Range: bytes=0-
+   Worker:
+     1. base64 decode token
+     2. expires check → valid
+     3. sha256 reverify → signature match
+     4. fetch(source, { Range: "bytes=0-" })
+     5. pipe body → user (zero-copy, no RAM buffer)
+   Browser: HTTP 206 Partial → Video plays!
+
+Step 7 — Seeking
+   User skips to 2 min mark
+   Browser: Range: bytes=60000000-
+   Worker: Same valid token → forward range → 206 response
+   User: Instantly jumps to that point, no rebuffering!
+```
+
+---
+
+## ⚡ 9. Performance Metrics
+
+| Metric | Value | Reason |
+|---|---|---|
+| Thumbnail Load (cached) | ~50ms | Redis TTL |
+| Thumbnail Load (DB) | ~200ms | MySQL + network |
+| Token Generation | ~100ms | Pure crypto |
+| Video First Byte | ~50-200ms | CF Edge proximity |
+| Seeking Latency | ~100-300ms | HTTP Range |
+| DB Queries per play | 0 (cached) or 1 | Redis 1hr cache |
+| Worker RAM Usage | ~0 MB | Zero-copy piping |
+| R2 Egress Cost | $0 | CF free egress |
+
+---
+
+## 🔗 10. Important URLs
+
+| Resource | URL |
+|---|---|
+| **Next.js Production** | https://backend-nine-smoky-38.vercel.app |
+| **GitHub Repo** | https://github.com/linamolygit/videostream |
+| **CF Worker** | https://withered-term-6150.ledepamu.workers.dev |
+| **Admin Videos** | https://backend-nine-smoky-38.vercel.app/admin/videos |
+| **Profile / API Token** | https://backend-nine-smoky-38.vercel.app/profile |
+
+---
+
+## 🚨 11. Common Issues & Fixes
+
+| Issue | Cause | Fix |
+|---|---|---|
+| "Unauthorized Admin" | API token mismatch | Profile se fresh token copy karo |
+| "Video not found" | UUID typo | Admin se exact UUID copy karo |
+| "Token has expired" | 1 hour purana | Page refresh karo |
+| "Invalid Signature" | SECRET_SALT mismatch | Dono jagah same salt set karo |
+| Bot ko video dikh rahi | Detection broken | User-Agent check karo |
+| "Missing required fields" | Old field names | Hard refresh (Ctrl+Shift+R) |
+| Video na chale without fbclid | Social traffic check | URL mein ?fbclid=test add karo |
+
+---
+
+*Document End — Media Hoster PRD v6.0*
